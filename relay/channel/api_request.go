@@ -38,6 +38,33 @@ func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Hea
 	}
 }
 
+// copyAllRequestHeaders 复制用户原始请求的所有头信息，排除可能干扰HTTP传输的系统头
+func copyAllRequestHeaders(c *gin.Context, targetHeader *http.Header) {
+	// 定义需要排除的系统头（这些头会干扰HTTP传输）
+	excludedHeaders := map[string]bool{
+		"host":              true, // 目标主机由URL决定
+		"connection":        true, // 连接方式由client决定
+		"transfer-encoding": true, // 传输编码由client决定
+		"content-length":    true, // 内容长度由client自动计算
+		"proxy-connection":  true, // 代理连接头
+	}
+
+	// 复制所有非排除的原始头
+	for headerKey, headerValues := range c.Request.Header {
+		lowerKey := strings.ToLower(headerKey)
+		if !excludedHeaders[lowerKey] {
+			// 使用Set而非Add，确保覆盖任何预设值
+			for i, value := range headerValues {
+				if i == 0 {
+					targetHeader.Set(headerKey, value)
+				} else {
+					targetHeader.Add(headerKey, value)
+				}
+			}
+		}
+	}
+}
+
 // processHeaderOverride 处理请求头覆盖，支持变量替换
 // 支持的变量：{api_key}
 func processHeaderOverride(info *common.RelayInfo) (map[string]string, error) {
@@ -71,17 +98,26 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	headers := req.Header
-	headerOverride, err := processHeaderOverride(info)
-	if err != nil {
-		return nil, err
+
+	// 新增：完整请求头透传逻辑
+	if info.ChannelSetting.PassThroughHeadersEnabled {
+		// 透传用户原始请求头，不添加任何系统生成头
+		copyAllRequestHeaders(c, &headers)
+	} else {
+		// 现有逻辑：分层设置请求头
+		headerOverride, err := processHeaderOverride(info)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range headerOverride {
+			headers.Set(key, value)
+		}
+		err = a.SetupRequestHeader(c, &headers, info)
+		if err != nil {
+			return nil, fmt.Errorf("setup request header failed: %w", err)
+		}
 	}
-	for key, value := range headerOverride {
-		headers.Set(key, value)
-	}
-	err = a.SetupRequestHeader(c, &headers, info)
-	if err != nil {
-		return nil, fmt.Errorf("setup request header failed: %w", err)
-	}
+
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -101,20 +137,29 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	if err != nil {
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
-	// set form data
-	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	headers := req.Header
-	headerOverride, err := processHeaderOverride(info)
-	if err != nil {
-		return nil, err
+
+	// 新增：完整请求头透传逻辑
+	if info.ChannelSetting.PassThroughHeadersEnabled {
+		// 透传用户原始请求头，不添加任何系统生成头
+		copyAllRequestHeaders(c, &headers)
+	} else {
+		// 现有逻辑：分层设置请求头
+		// set form data
+		req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+		headerOverride, err := processHeaderOverride(info)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range headerOverride {
+			headers.Set(key, value)
+		}
+		err = a.SetupRequestHeader(c, &headers, info)
+		if err != nil {
+			return nil, fmt.Errorf("setup request header failed: %w", err)
+		}
 	}
-	for key, value := range headerOverride {
-		headers.Set(key, value)
-	}
-	err = a.SetupRequestHeader(c, &headers, info)
-	if err != nil {
-		return nil, fmt.Errorf("setup request header failed: %w", err)
-	}
+
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -128,18 +173,27 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	targetHeader := http.Header{}
-	headerOverride, err := processHeaderOverride(info)
-	if err != nil {
-		return nil, err
+
+	// 新增：完整请求头透传逻辑
+	if info.ChannelSetting.PassThroughHeadersEnabled {
+		// 透传用户原始请求头，不添加任何系统生成头
+		copyAllRequestHeaders(c, &targetHeader)
+	} else {
+		// 现有逻辑：分层设置请求头
+		headerOverride, err := processHeaderOverride(info)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range headerOverride {
+			targetHeader.Set(key, value)
+		}
+		err = a.SetupRequestHeader(c, &targetHeader, info)
+		if err != nil {
+			return nil, fmt.Errorf("setup request header failed: %w", err)
+		}
+		targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	}
-	for key, value := range headerOverride {
-		targetHeader.Set(key, value)
-	}
-	err = a.SetupRequestHeader(c, &targetHeader, info)
-	if err != nil {
-		return nil, fmt.Errorf("setup request header failed: %w", err)
-	}
-	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
+
 	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
 	if err != nil {
 		return nil, fmt.Errorf("dial failed to %s: %w", fullRequestURL, err)

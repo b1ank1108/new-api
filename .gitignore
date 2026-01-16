@@ -27,3 +27,11 @@ data/
 .gomodcache/
 .gocache-temp
 .gopath
+.ace-tool/
+.spec-workflow/
+
+# Passthrough testing files (temporary)
+docker-compose.passthrough.yml
+start-passthrough-test.sh
+test-passthrough.sh
+PASSTHROUGH-TEST-README.md
