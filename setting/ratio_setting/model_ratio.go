@@ -131,9 +131,6 @@ var defaultModelRatio = map[string]float64{
 	"text-search-ada-doc-001":                   10,
 	"text-moderation-stable":                    0.1,
 	"text-moderation-latest":                    0.1,
-	"claude-instant-1":                          0.4,   // $0.8 / 1M tokens
-	"claude-2.0":                                4,     // $8 / 1M tokens
-	"claude-2.1":                                4,     // $8 / 1M tokens
 	"claude-3-haiku-20240307":                   0.125, // $0.25 / 1M tokens
 	"claude-3-5-haiku-20241022":                 0.5,   // $1 / 1M tokens
 	"claude-haiku-4-5-20251001":                 0.5,   // $1 / 1M tokens
@@ -411,6 +408,17 @@ func GetModelPrice(name string, printErr bool) (float64, bool) {
 
 	name = FormatMatchingModelName(name)
 
+	if strings.HasSuffix(name, CompactModelSuffix) {
+		price, ok := modelPriceMap[CompactWildcardModelKey]
+		if !ok {
+			if printErr {
+				common.SysError("model price not found: " + name)
+			}
+			return -1, false
+		}
+		return price, true
+	}
+
 	price, ok := modelPriceMap[name]
 	if !ok {
 		if printErr {
@@ -448,6 +456,12 @@ func GetModelRatio(name string) (float64, bool, string) {
 
 	ratio, ok := modelRatioMap[name]
 	if !ok {
+		if strings.HasSuffix(name, CompactModelSuffix) {
+			if wildcardRatio, ok := modelRatioMap[CompactWildcardModelKey]; ok {
+				return wildcardRatio, true, name
+			}
+			//return 0, true, name
+		}
 		return 37.5, operation_setting.SelfUseModeEnabled, name
 	}
 	return ratio, true, name
@@ -572,8 +586,6 @@ func getHardcodedCompletionModelRatio(name string) (float64, bool) {
 		return 5, true
 	} else if strings.Contains(name, "claude-sonnet-4") || strings.Contains(name, "claude-opus-4") || strings.Contains(name, "claude-haiku-4") {
 		return 5, true
-	} else if strings.Contains(name, "claude-instant-1") || strings.Contains(name, "claude-2") {
-		return 3, true
 	}
 
 	if strings.HasPrefix(name, "gpt-3.5") {

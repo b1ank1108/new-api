@@ -491,7 +491,7 @@ export const useChannelsData = () => {
     }
     const { success, message } = res.data;
     if (success) {
-      showSuccess('操作成功完成！');
+      showSuccess(t('操作成功完成！'));
       let newChannels = [...channels];
       for (let i = 0; i < newChannels.length; i++) {
         if (newChannels[i].tag === tag) {
@@ -747,28 +747,15 @@ export const useChannelsData = () => {
 
   const updateChannelBalance = async (record) => {
     if (record?.type === 57) {
-      try {
-        const res = await API.get(`/api/channel/${record.id}/codex/usage`, {
-          skipErrorHandler: true,
-        });
-        if (!res?.data?.success) {
-          console.error('Codex usage fetch failed:', res?.data?.message);
-          showError(t('获取用量失败'));
-        }
-        openCodexUsageModal({
-          t,
-          record,
-          payload: res?.data,
-          onCopy: async (text) => {
-            const ok = await copy(text);
-            if (ok) showSuccess(t('已复制'));
-            else showError(t('复制失败'));
-          },
-        });
-      } catch (error) {
-        console.error('Codex usage fetch error:', error);
-        showError(t('获取用量失败'));
-      }
+      openCodexUsageModal({
+        t,
+        record,
+        onCopy: async (text) => {
+          const ok = await copy(text);
+          if (ok) showSuccess(t('已复制'));
+          else showError(t('复制失败'));
+        },
+      });
       return;
     }
 
