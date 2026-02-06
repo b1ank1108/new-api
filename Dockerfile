@@ -1,9 +1,12 @@
-FROM oven/bun:latest AS builder
+ARG BUILDPLATFORM
+FROM --platform=$BUILDPLATFORM oven/bun:latest AS builder
 
 WORKDIR /build
+ARG NPM_CONFIG_REGISTRY=https://registry.npmjs.org
+ENV NPM_CONFIG_REGISTRY=$NPM_CONFIG_REGISTRY
 COPY web/package.json .
 COPY web/bun.lock .
-RUN bun install
+RUN --mount=type=cache,target=/root/.bun/install/cache bun install
 COPY ./web .
 COPY ./VERSION .
 RUN DISABLE_ESLINT_PLUGIN='true' VITE_REACT_APP_VERSION=$(cat VERSION) bun run build
