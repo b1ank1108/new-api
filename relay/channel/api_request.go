@@ -38,15 +38,15 @@ func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Hea
 	}
 }
 
-// copyAllRequestHeaders 复制用户原始请求的所有头信息，排除可能干扰HTTP传输的系统头
+// copyAllRequestHeaders 复制用户原始请求的所有头信息，排除可能干扰HTTP传输或鉴权的系统头
 func copyAllRequestHeaders(c *gin.Context, targetHeader *http.Header) {
 	// 定义需要排除的系统头（这些头会干扰HTTP传输）
 	excludedHeaders := map[string]bool{
 		"host":              true, // 目标主机由URL决定
-		"connection":        true, // 连接方式由client决定
-		"transfer-encoding": true, // 传输编码由client决定
-		"content-length":    true, // 内容长度由client自动计算
-		"proxy-connection":  true, // 代理连接头
+		"authorization":     true, // 避免透传下游鉴权信息到上游
+		"x-api-key":         true, // 避免透传下游鉴权信息到上游（Claude）
+		"x-goog-api-key":    true, // 避免透传下游鉴权信息到上游（Gemini）
+		"key":               true, // 透传时排除用户 key
 	}
 
 	// 复制所有非排除的原始头
@@ -99,10 +99,20 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	headers := req.Header
 
-	// 新增：完整请求头透传逻辑
+	// 透传用户原始请求头（排除部分系统头），并确保渠道鉴权信息生效
 	if info.ChannelSetting.PassThroughHeadersEnabled {
-		// 透传用户原始请求头，不添加任何系统生成头
 		copyAllRequestHeaders(c, &headers)
+		headerOverride, err := processHeaderOverride(info)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range headerOverride {
+			headers.Set(key, value)
+		}
+		err = a.SetupRequestHeader(c, &headers, info)
+		if err != nil {
+			return nil, fmt.Errorf("setup request header failed: %w", err)
+		}
 	} else {
 		// 现有逻辑：分层设置请求头
 		headerOverride, err := processHeaderOverride(info)
@@ -139,10 +149,20 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	}
 	headers := req.Header
 
-	// 新增：完整请求头透传逻辑
+	// 透传用户原始请求头（排除部分系统头），并确保渠道鉴权信息生效
 	if info.ChannelSetting.PassThroughHeadersEnabled {
-		// 透传用户原始请求头，不添加任何系统生成头
 		copyAllRequestHeaders(c, &headers)
+		headerOverride, err := processHeaderOverride(info)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range headerOverride {
+			headers.Set(key, value)
+		}
+		err = a.SetupRequestHeader(c, &headers, info)
+		if err != nil {
+			return nil, fmt.Errorf("setup request header failed: %w", err)
+		}
 	} else {
 		// 现有逻辑：分层设置请求头
 		// set form data
@@ -174,10 +194,20 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	targetHeader := http.Header{}
 
-	// 新增：完整请求头透传逻辑
+	// 透传用户原始请求头（排除部分系统头），并确保渠道鉴权信息生效
 	if info.ChannelSetting.PassThroughHeadersEnabled {
-		// 透传用户原始请求头，不添加任何系统生成头
 		copyAllRequestHeaders(c, &targetHeader)
+		headerOverride, err := processHeaderOverride(info)
+		if err != nil {
+			return nil, err
+		}
+		for key, value := range headerOverride {
+			targetHeader.Set(key, value)
+		}
+		err = a.SetupRequestHeader(c, &targetHeader, info)
+		if err != nil {
+			return nil, fmt.Errorf("setup request header failed: %w", err)
+		}
 	} else {
 		// 现有逻辑：分层设置请求头
 		headerOverride, err := processHeaderOverride(info)
